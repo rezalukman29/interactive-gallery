@@ -3,6 +3,7 @@
 import { Canvas } from "@react-three/fiber";
 import { Suspense, useState } from "react";
 import { GalleryScene, type GalleryFocusTarget } from "./GalleryScene";
+import { HOME_POSITION } from "./galleryLayout";
 
 export function GalleryCanvas() {
   const [selectedTarget, setSelectedTarget] =
@@ -17,8 +18,8 @@ export function GalleryCanvas() {
   return (
     <div className="gallery-canvas">
       <Canvas
-        aria-label="Ruangan galeri 3D dengan tiga lukisan pada dinding belakang"
-        camera={{ position: [0, 2.4, 6.5], fov: 58, near: 0.1, far: 50 }}
+        aria-label="Galeri 3D dengan skylight, lukisan di tiga dinding, dan vending machine"
+        camera={{ position: [...HOME_POSITION], fov: 58, near: 0.1, far: 50 }}
         dpr={[1, 1.75]}
         frameloop="demand"
         gl={{ antialias: true, powerPreference: "high-performance" }}

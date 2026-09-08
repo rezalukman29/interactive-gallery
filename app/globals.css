@@ -89,7 +89,10 @@ body {
   z-index: 10;
   right: 1rem;
   bottom: 0.8rem;
-  color: rgb(244 239 230 / 48%);
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  background: rgb(17 16 14 / 65%);
+  color: rgb(244 239 230 / 90%);
   font-size: 0.58rem;
   letter-spacing: 0.03em;
   text-decoration: none;

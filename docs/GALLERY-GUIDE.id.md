@@ -2,8 +2,11 @@
 
 Panduan langkah demi langkah - Next.js, TypeScript, React Three Fiber, Drei, Three.js, dan GSAP
 
-Versi dokumentasi: 1.0  
-Kondisi proyek: implementasi galeri per 8 September 2026
+Versi dokumentasi: 1.1
+
+Kondisi proyek: galeri skylight yang telah disetujui, 8 September 2026
+
+Perubahan 1.1: ruangan dibuat ulang sebagai geometri 3D berdasarkan referensi interior krem dengan skylight. Ditambahkan `GalleryRoom.tsx` dan `galleryLayout.ts`; pencahayaan siang hari, penempatan objek, kamera home, serta diagram diperbarui. Gambar referensi tidak dipasang sebagai background PNG dan tidak dikonversi menjadi GLB. Selection, popover, hitbox, form, dan tween GSAP tetap memakai alur yang sama.
 
 ---
 
@@ -74,7 +77,9 @@ interactive-gallery/
 │   └── globals.css              # UI DOM dan layout layar penuh
 ├── components/gallery/
 │   ├── GalleryCanvas.tsx        # client boundary, Canvas, state utama
-│   ├── GalleryScene.tsx         # room, light, data objek, komposisi scene
+│   ├── GalleryScene.tsx         # light, data objek, komposisi scene
+│   ├── GalleryRoom.tsx          # dinding, skylight, balok, ceruk, ventilasi
+│   ├── galleryLayout.ts         # ukuran ruangan dan kamera home bersama
 │   ├── Painting.tsx             # lukisan reusable dan popover
 │   ├── CameraController.tsx     # animasi kamera GSAP
 │   └── VendingMachine.tsx       # GLB, hover, hitbox, dan form
@@ -109,7 +114,10 @@ Scene graph bersifat hierarkis:
 
 ```mermaid
 flowchart TD
-  Scene --> Room
+  Scene --> Room[GalleryRoom]
+  Room --> Walls[Floor and walls]
+  Room --> Roof[Roof wings and skylight beams]
+  Room --> Details[Alcove and ventilation grille]
   Scene --> Lights
   Scene --> Paintings
   Scene --> Vending
@@ -144,7 +152,7 @@ Kamera awal berada di Z positif dan melihat ke Z negatif.
 Tuple `[x, y, z]` dipakai untuk `position`, sedangkan `rotation` memakai radian `[x, y, z]`.
 
 ```tsx
-position={[0, 2.45, -4.86]}
+position={[0, 2.45, -7.86]}
 rotation={[0, Math.PI / 2, 0]}
 ```
 
@@ -160,6 +168,10 @@ flowchart TD
   Page[app/page.tsx] --> Canvas[GalleryCanvas]
   Canvas --> State[selectedTarget + vendingPanelOpen]
   Canvas --> Scene[GalleryScene]
+  Layout[galleryLayout.ts] --> Canvas
+  Layout --> Room[GalleryRoom]
+  Layout --> Camera[CameraController]
+  Scene --> Room
   Scene --> Painting[3 x Painting]
   Scene --> Vending[VendingMachine]
   Scene --> Camera[CameraController]
@@ -215,7 +227,7 @@ Konfigurasi Canvas:
 
 ```tsx
 <Canvas
-  camera={{ position: [0, 2.4, 6.5], fov: 58, near: 0.1, far: 50 }}
+  camera={{ position: [...HOME_POSITION], fov: 58, near: 0.1, far: 50 }}
   dpr={[1, 1.75]}
   frameloop="demand"
   gl={{ antialias: true, powerPreference: "high-performance" }}
@@ -263,23 +275,24 @@ Tombol Back muncul secara kondisional ketika ada selection. `handleBack()` meres
 
 ## 11. Langkah 4 - Membuat ruangan galeri
 
-Ukuran ruangan disimpan dalam satu konstanta:
+Ukuran dasar ruangan sekarang disimpan dalam `galleryLayout.ts`. `GalleryRoom.tsx` mengimpor `GALLERY_ROOM` dengan alias `ROOM`:
 
 ```tsx
-const ROOM = {
-  width: 12,
-  height: 6,
-  depth: 10,
+export const GALLERY_ROOM = {
+  width: 10,
+  height: 5.8,
+  depth: 16,
   wallThickness: 0.2,
+  skylightWidth: 3.6,
 } as const;
 ```
 
-Setiap bidang dibuat dari pasangan geometry dan material:
+Helper `RoomBox` membentuk bagian bangunan dari pasangan geometry dan material. Ini cuplikan inti helper tersebut:
 
 ```tsx
-<mesh receiveShadow position={[0, -0.1, 0]}>
-  <boxGeometry args={[ROOM.width, ROOM.wallThickness, ROOM.depth]} />
-  <meshStandardMaterial color="#302a24" roughness={0.8} />
+<mesh castShadow receiveShadow position={position}>
+  <boxGeometry args={size} />
+  <meshStandardMaterial color={color} roughness={roughness} />
 </mesh>
 ```
 
@@ -296,15 +309,36 @@ Mesh = Geometry + Material + Transform
 
 Floor berada sedikit di bawah `y=0`. Back wall berada di `z=-depth/2`. Side wall berada di `x=±width/2`.
 
+### Mengapa memakai geometri dan bukan PNG atau GLB?
+
+PNG dapat mengisi layar, tetapi foto perspektif tunggal tidak memiliki kedalaman bangunan. Saat kamera bergerak, foto itu tidak memperlihatkan sisi ruangan baru. Geometri Three.js menyediakan perspektif, bayangan, dan occlusion yang mengikuti kamera. GLB adalah pilihan untuk bangunan kompleks yang dibuat di Blender; untuk bentuk kotak pada referensi ini, komponen JSX sudah cukup. Background scene sebenarnya adalah warna langit `#d5e7f2`, terlihat melalui bukaan.
+
+### Membaca `GalleryRoom.tsx` langkah demi langkah
+
+1. `RoomBoxProps` membatasi posisi dan ukuran menjadi tuple tiga angka, dengan warna serta roughness opsional. Default warna adalah `#e4dccb`, roughness `0.86`.
+2. `halfWidth=5` dan `halfDepth=8` menentukan pusat dinding. Lantai memakai warna `#cbb89b` dan roughness `0.48`; permukaannya material warna solid, belum memakai texture batu.
+3. Dinding kanan utama memiliki panjang 14 dan pusat `z=1`, sehingga menyisakan bukaan pada `z=-8` sampai `-6`. Balok di atas bukaan dan tiga bidang ceruk membentuk area masuk yang benar-benar memiliki kedalaman.
+4. `roofWingWidth=(10-3.6)/2=3.2` menentukan lebar setiap sayap atap. Loop `[-1, 1]` mencerminkan sayap atap, balok memanjang, trim skylight, dan skirting pada kedua sisi.
+5. Balok memanjang berpusat pada `x=±1.8`, `y=5.55`. Lima balok melintang berada pada `z=[-7.8,-4,0,4,7.8]`. Ruang di antaranya dibiarkan terbuka sebagai skylight; belum ada kaca fisik.
+6. Ventilasi di dinding belakang tersusun dari casing, panel gelap, dan 32 bilah tipis melalui `Array.from`. Ini geometri dekoratif, tanpa simulasi udara.
+7. Semua bagian berada dalam satu group bernama `Skylight gallery architecture`. Group memberi struktur scene; tiap `RoomBox` menerima dan menghasilkan bayangan.
+
+Ukuran dasar menggunakan konstanta bersama, tetapi dimensi detail ceruk, balok, dan ventilasi masih berupa angka lokal. Mengubah `GALLERY_ROOM` saja belum otomatis menyesuaikan semua detail maupun posisi lukisan; periksa juga `GalleryRoom.tsx` dan data `GalleryScene.tsx`.
+
 ## 12. Langkah 5 - Pencahayaan
 
-Scene menggunakan ambient light dan empat spotlight.
+Scene menggunakan ambient light, hemisphere light, directional light, dan empat spotlight:
 
 ```tsx
-<ambientLight color="#fff4df" intensity={0.42} />
+<ambientLight color="#fff5e7" intensity={0.65} />
+<hemisphereLight args={["#edf5ff", "#c8b797", 1.6]} />
 ```
 
 Ambient light memberi penerangan dasar merata agar area gelap tidak menjadi hitam total. Spotlight memberi arah, fokus, dan suasana galeri.
+
+Hemisphere light memberi gradasi warna langit dan tanah berdasarkan orientasi permukaan. Ini pendekatan pencahayaan lingkungan, bukan simulasi pantulan cahaya penuh. Directional light di `[5,12,4]`, warna `#fff0d4`, intensity `3.2`, mengarah ke target default `[0,0,0]` dan memberi kesan matahari melalui skylight. Balok serta atap yang `castShadow` memotong cahaya menjadi pola bayangan.
+
+Shadow matahari memakai map `2048×2048`, batas kamera shadow `-12..12` pada kedua sumbu, near `0.5`, far `40`, bias `-0.0001`, dan normalBias `0.025`. Empat spotlight sekarang memakai intensity `22` dan map `1024×1024`, sebagai cahaya tambahan untuk objek. Target spotlight mengambil `position` langsung dari data objek agar tidak tertinggal ketika objek dipindah.
 
 Spotlight Three.js membutuhkan `Object3D` sebagai target, bukan tuple biasa:
 
@@ -366,9 +400,11 @@ Penempatan saat ini:
 
 | Lukisan | Dinding | Rotation Y | Camera sekitar 3 m di depan |
 |---|---|---:|---|
-| Danau Fajar | kiri | `Math.PI / 2` | `[-2.86, 2.45, -2.2]` |
-| Champions 1999 | belakang | `0` | `[0, 2.45, -1.86]` |
-| Kota Bulan Sabit | kanan | `-Math.PI / 2` | `[2.86, 2.45, -2.2]` |
+| Danau Fajar | kiri | `Math.PI / 2` | `[-1.86, 2.45, -2.2]` |
+| Champions 1999 | belakang | `0` | `[0, 2.45, -4.86]` |
+| Kota Bulan Sabit | kanan | `-Math.PI / 2` | `[1.86, 2.45, -2.2]` |
+
+Pusat lukisan kiri adalah `[-4.86,2.45,-2.2]`, tengah `[0,2.45,-7.86]`, dan kanan `[4.86,2.45,-2.2]`. Vending machine berada di `[-3.3,1.88,-6.25]`, dengan kamera fokus `[-1.18,1.9,-4.13]`. Jarak fokus lukisan tepat 3 unit; vending sekitar 2.998 unit. Vending digeser ke belakang untuk memberi ruang pandang lukisan kiri.
 
 ## 14. Langkah 7 - Komponen Painting
 
@@ -471,6 +507,15 @@ invalidate();
 Cleanup `timeline.kill()` mencegah tween lama terus berjalan bila pengguna memilih objek lain dengan cepat.
 
 Saat selection `null`, destination berubah menjadi `HOME_POSITION` dan focus menjadi `HOME_LOOK_AT`; mekanisme yang sama membawa camera kembali.
+
+Kedua nilai sekarang berasal dari `galleryLayout.ts`:
+
+```tsx
+export const HOME_POSITION = [0, 2.7, 6.5] as const;
+export const HOME_LOOK_AT = [0, 2.65, -7.86] as const;
+```
+
+`GalleryCanvas` memakai `HOME_POSITION` yang sama untuk kamera awal. `CameraController` mengimpornya untuk Back, sehingga posisi awal dan posisi kembali tidak memiliki salinan konstanta yang bisa berbeda.
 
 ## 16. Langkah 9 - Memuat GLB vending machine
 
@@ -598,7 +643,7 @@ Perbedaannya:
 - box shadow memisahkan panel dari gambar;
 - `z-index` mengatur urutan DOM, bukan urutan mesh WebGL.
 
-Media query `prefers-reduced-motion` menonaktifkan animasi bagi pengguna yang memilih pengurangan gerak pada sistem operasi.
+Media query `prefers-reduced-motion` menonaktifkan animasi dan transisi CSS overlay. Tween kamera GSAP serta scale hover dalam `useFrame` belum mengikuti preferensi ini. Pada ruangan terang, `.model-credit` sekarang memakai background gelap 65%, teks terang 90%, padding, dan radius agar atribusi tetap terbaca.
 
 ## 20. Alur interaksi lengkap
 
@@ -644,9 +689,22 @@ flowchart TD
 - Menjadi owner state selection dan vending panel.
 - Menampilkan tombol Back serta atribusi model di luar canvas.
 
+### `galleryLayout.ts`
+
+- Mengekspor `GALLERY_ROOM`, `HOME_POSITION`, dan `HOME_LOOK_AT`.
+- Dipakai oleh `GalleryRoom`, `GalleryCanvas`, dan `CameraController`.
+- Belum menyimpan koordinat artwork atau semua detail bangunan.
+
+### `GalleryRoom.tsx`
+
+- `RoomBoxProps` dan `RoomBox` menyatukan pola box geometry serta material.
+- Menyusun lantai, dinding, ceruk kanan, sayap atap, balok skylight, trim, dan ventilasi.
+- Loop berpasangan membentuk struktur simetris; loop bilah membentuk ventilasi.
+- Tidak memiliki state selection atau event interaksi.
+
 ### `GalleryScene.tsx`
 
-- Menyimpan data ruangan, painting, vending target, dan lighting.
+- Menyimpan data painting, vending target, dan lighting; memanggil `GalleryRoom` untuk bangunan.
 - Menyusun semua object 3D.
 - Meneruskan callback, bukan menyimpan selection sendiri.
 - Menjadi composition root dunia 3D.
@@ -725,7 +783,7 @@ Yang sudah diterapkan:
 - preload texture dan GLB;
 - cleanup GSAP timeline;
 - komponen dan data terpisah;
-- reduced motion;
+- reduced motion pada animasi CSS overlay;
 - type-safe tuple dan target contract.
 
 Peningkatan berikutnya:
@@ -757,10 +815,10 @@ Contoh:
   title: "Judul Baru",
   description: "Deskripsi singkat.",
   price: 12_000_000,
-  position: [0, 2.45, -4.86],
+  position: [0, 2.45, -7.86],
   rotation: [0, 0, 0],
   size: [1.8, 2.4],
-  cameraTarget: [0, 2.45, -1.86],
+  cameraTarget: [0, 2.45, -4.86],
 }
 ```
 
@@ -788,7 +846,7 @@ Untuk presisi lebih tinggi:
 
 ## 26. Latihan belajar
 
-1. Tambahkan ceiling tanpa menutup sudut pandang camera.
+1. Tambahkan kaca skylight tanpa menutup sudut pandang camera; uji transparansi dan bayangan.
 2. Tambahkan satu sculpture GLB di tengah ruangan.
 3. Buat highlight spotlight berubah ketika selection berubah.
 4. Buat keypad mengisi input tanpa keyboard.

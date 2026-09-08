@@ -3,9 +3,8 @@ import { gsap } from "gsap";
 import { useEffect } from "react";
 import { PerspectiveCamera, Vector3 } from "three";
 import type { GalleryFocusTarget } from "./GalleryScene";
+import { HOME_POSITION, HOME_LOOK_AT } from "./galleryLayout";
 
-const HOME_POSITION = [0, 2.4, 6.5] as const;
-const HOME_LOOK_AT = [0, 2.4, -4.86] as const;
 const ANIMATION_DURATION = 1.2;
 
 type CameraControllerProps = {

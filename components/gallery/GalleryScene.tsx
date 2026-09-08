@@ -3,6 +3,7 @@ import { Object3D } from "three";
 import { Painting } from "./Painting";
 import { CameraController } from "./CameraController";
 import { VendingMachine } from "./VendingMachine";
+import { GalleryRoom } from "./GalleryRoom";
 
 type Vector3Tuple = readonly [number, number, number];
 
@@ -21,13 +22,6 @@ export type GalleryPainting = GalleryFocusTarget & {
   size: readonly [number, number];
 };
 
-const ROOM = {
-  width: 12,
-  height: 6,
-  depth: 10,
-  wallThickness: 0.2,
-} as const;
-
 const paintings: readonly GalleryPainting[] = [
   {
     id: "dawn-lake",
@@ -35,10 +29,10 @@ const paintings: readonly GalleryPainting[] = [
     title: "Danau Fajar",
     description: "Cahaya pertama yang jatuh perlahan di antara kabut dan pegunungan.",
     price: 18_500_000,
-    position: [-5.86, 2.45, -2.2],
+    position: [-4.86, 2.45, -2.2],
     rotation: [0, Math.PI / 2, 0],
     size: [1.8, 2.4],
-    cameraTarget: [-2.86, 2.45, -2.2],
+    cameraTarget: [-1.86, 2.45, -2.2],
   },
   {
     id: "champions-1999",
@@ -46,10 +40,10 @@ const paintings: readonly GalleryPainting[] = [
     title: "Champions of Europe 1999",
     description: "Perayaan malam bersejarah saat kejayaan Eropa kembali ke Manchester.",
     price: 32_000_000,
-    position: [0, 2.45, -4.86],
+    position: [0, 2.45, -7.86],
     rotation: [0, 0, 0],
     size: [1.8, 2.4],
-    cameraTarget: [0, 2.45, -1.86],
+    cameraTarget: [0, 2.45, -4.86],
   },
   {
     id: "crescent-city",
@@ -57,36 +51,36 @@ const paintings: readonly GalleryPainting[] = [
     title: "Kota Bulan Sabit",
     description: "Arsitektur imajiner yang tumbuh di antara laut, senja, dan bulan muda.",
     price: 21_000_000,
-    position: [5.86, 2.45, -2.2],
+    position: [4.86, 2.45, -2.2],
     rotation: [0, -Math.PI / 2, 0],
     size: [1.6, 2.4],
-    cameraTarget: [2.86, 2.45, -2.2],
+    cameraTarget: [1.86, 2.45, -2.2],
   },
 ];
 
 const vendingMachine: GalleryFocusTarget = {
   id: "soda-vending-machine",
   title: "Soda Vending Machine",
-  position: [-4.45, 1.88, -3.55],
-  cameraTarget: [-2.33, 1.9, -1.43],
+  position: [-3.3, 1.88, -6.25],
+  cameraTarget: [-1.18, 1.9, -4.13],
 };
 
 const spotlights = [
   {
-    position: [-2.2, 5, -0.6],
-    target: [-4.45, 1.9, -3.55],
+    position: [-1.4, 4.9, -3.7],
+    target: vendingMachine.position,
   },
   {
-    position: [-3.6, 5.35, -0.8],
-    target: [-5.86, 2.45, -2.2],
+    position: [-3, 5.1, -1],
+    target: paintings[0].position,
   },
   {
-    position: [0, 5.4, 0.5],
-    target: [0, 2.45, -4.86],
+    position: [0, 5.1, -5],
+    target: paintings[1].position,
   },
   {
-    position: [3.6, 5.35, -0.8],
-    target: [5.86, 2.45, -2.2],
+    position: [3, 5.1, -1],
+    target: paintings[2].position,
   },
 ] as const;
 
@@ -110,7 +104,7 @@ function GallerySpotlight({ position, target }: GallerySpotlightProps) {
         color="#fff1d6"
         position={[...position]}
         target={targetObject}
-        intensity={45}
+        intensity={22}
         distance={12}
         angle={0.32}
         penumbra={0.75}
@@ -140,9 +134,25 @@ export function GalleryScene({
 }: GallerySceneProps) {
   return (
     <>
-      <color attach="background" args={["#11100e"]} />
+      <color attach="background" args={["#d5e7f2"]} />
 
-      <ambientLight color="#fff4df" intensity={0.42} />
+      <ambientLight color="#fff5e7" intensity={0.65} />
+      <hemisphereLight args={["#edf5ff", "#c8b797", 1.6]} />
+      <directionalLight
+        castShadow
+        color="#fff0d4"
+        intensity={3.2}
+        position={[5, 12, 4]}
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={12}
+        shadow-camera-bottom={-12}
+        shadow-camera-near={0.5}
+        shadow-camera-far={40}
+        shadow-bias={-0.0001}
+        shadow-normalBias={0.025}
+      />
       {spotlights.map((light, index) => (
         <GallerySpotlight
           key={index}
@@ -151,25 +161,7 @@ export function GalleryScene({
         />
       ))}
 
-      <mesh receiveShadow position={[0, -0.1, 0]}>
-        <boxGeometry args={[ROOM.width, ROOM.wallThickness, ROOM.depth]} />
-        <meshStandardMaterial color="#302a24" roughness={0.8} />
-      </mesh>
-
-      <mesh receiveShadow position={[0, ROOM.height / 2, -ROOM.depth / 2]}>
-        <boxGeometry args={[ROOM.width, ROOM.height, ROOM.wallThickness]} />
-        <meshStandardMaterial color="#d8d2c6" roughness={0.92} />
-      </mesh>
-
-      <mesh receiveShadow position={[-ROOM.width / 2, ROOM.height / 2, 0]}>
-        <boxGeometry args={[ROOM.wallThickness, ROOM.height, ROOM.depth]} />
-        <meshStandardMaterial color="#cbc4b8" roughness={0.92} />
-      </mesh>
-
-      <mesh receiveShadow position={[ROOM.width / 2, ROOM.height / 2, 0]}>
-        <boxGeometry args={[ROOM.wallThickness, ROOM.height, ROOM.depth]} />
-        <meshStandardMaterial color="#cbc4b8" roughness={0.92} />
-      </mesh>
+      <GalleryRoom />
 
       {paintings.map((painting) => (
         <Painting

@@ -2,8 +2,11 @@
 
 A step-by-step guide - Next.js, TypeScript, React Three Fiber, Drei, Three.js, and GSAP
 
-Documentation version: 1.0  
-Project snapshot: gallery implementation as of September 8, 2026
+Documentation version: 1.1
+
+Project snapshot: approved skylight gallery, September 8, 2026
+
+Changes in 1.1: the room was rebuilt as 3D geometry inspired by the cream interior and skylight reference. Added `GalleryRoom.tsx` and `galleryLayout.ts`; updated daylight, object placement, the home camera, and diagrams. The reference image is not used as a PNG backdrop or converted into a GLB. Selection, popovers, the hitbox, form, and GSAP tween retain the same interaction flow.
 
 ---
 
@@ -74,7 +77,9 @@ interactive-gallery/
 │   └── globals.css              # full-screen layout and DOM UI
 ├── components/gallery/
 │   ├── GalleryCanvas.tsx        # client boundary, Canvas, primary state
-│   ├── GalleryScene.tsx         # room, lights, object data, scene composition
+│   ├── GalleryScene.tsx         # lights, object data, scene composition
+│   ├── GalleryRoom.tsx          # walls, skylight, beams, alcove, grille
+│   ├── galleryLayout.ts         # shared room dimensions and camera home
 │   ├── Painting.tsx             # reusable painting and popovers
 │   ├── CameraController.tsx     # GSAP camera animation
 │   └── VendingMachine.tsx       # GLB, hover, hitbox, and form
@@ -109,7 +114,10 @@ The scene graph is hierarchical:
 
 ```mermaid
 flowchart TD
-  Scene --> Room
+  Scene --> Room[GalleryRoom]
+  Room --> Walls[Floor and walls]
+  Room --> Roof[Roof wings and skylight beams]
+  Room --> Details[Alcove and ventilation grille]
   Scene --> Lights
   Scene --> Paintings
   Scene --> Vending
@@ -144,7 +152,7 @@ The initial camera sits on positive Z and looks toward negative Z.
 The `[x, y, z]` tuple is used for `position`, while `rotation` uses radians in `[x, y, z]` order.
 
 ```tsx
-position={[0, 2.45, -4.86]}
+position={[0, 2.45, -7.86]}
 rotation={[0, Math.PI / 2, 0]}
 ```
 
@@ -160,6 +168,10 @@ flowchart TD
   Page[app/page.tsx] --> Canvas[GalleryCanvas]
   Canvas --> State[selectedTarget + vendingPanelOpen]
   Canvas --> Scene[GalleryScene]
+  Layout[galleryLayout.ts] --> Canvas
+  Layout --> Room[GalleryRoom]
+  Layout --> Camera[CameraController]
+  Scene --> Room
   Scene --> Painting[3 x Painting]
   Scene --> Vending[VendingMachine]
   Scene --> Camera[CameraController]
@@ -215,7 +227,7 @@ Canvas configuration:
 
 ```tsx
 <Canvas
-  camera={{ position: [0, 2.4, 6.5], fov: 58, near: 0.1, far: 50 }}
+  camera={{ position: [...HOME_POSITION], fov: 58, near: 0.1, far: 50 }}
   dpr={[1, 1.75]}
   frameloop="demand"
   gl={{ antialias: true, powerPreference: "high-performance" }}
@@ -263,23 +275,24 @@ The Back button is conditionally rendered whenever a selection exists. `handleBa
 
 ## 11. Step 4 - Constructing the room
 
-Room dimensions live in one constant:
+Basic room dimensions now live in `galleryLayout.ts`. `GalleryRoom.tsx` imports `GALLERY_ROOM` using the alias `ROOM`:
 
 ```tsx
-const ROOM = {
-  width: 12,
-  height: 6,
-  depth: 10,
+export const GALLERY_ROOM = {
+  width: 10,
+  height: 5.8,
+  depth: 16,
   wallThickness: 0.2,
+  skylightWidth: 3.6,
 } as const;
 ```
 
-Every surface is a geometry/material pair:
+The `RoomBox` helper constructs building parts from a geometry/material pair. This is the core of that helper:
 
 ```tsx
-<mesh receiveShadow position={[0, -0.1, 0]}>
-  <boxGeometry args={[ROOM.width, ROOM.wallThickness, ROOM.depth]} />
-  <meshStandardMaterial color="#302a24" roughness={0.8} />
+<mesh castShadow receiveShadow position={position}>
+  <boxGeometry args={size} />
+  <meshStandardMaterial color={color} roughness={roughness} />
 </mesh>
 ```
 
@@ -296,15 +309,36 @@ Mesh = Geometry + Material + Transform
 
 The floor is slightly below `y=0`. The back wall is at `z=-depth/2`. Side walls are at `x=±width/2`.
 
+### Why geometry instead of a PNG or GLB?
+
+A PNG can fill the screen, but a single perspective image contains no building depth. Moving the camera cannot reveal new sides of that room. Three.js geometry supplies perspective, shadows, and occlusion that follow the camera. GLB is an option for complex buildings authored in Blender; JSX components are sufficient for the box forms in this reference. The actual scene background is sky color `#d5e7f2`, visible through openings.
+
+### Reading `GalleryRoom.tsx` step by step
+
+1. `RoomBoxProps` restricts positions and sizes to three-number tuples, with optional color and roughness. Defaults are `#e4dccb` and `0.86`.
+2. `halfWidth=5` and `halfDepth=8` determine wall centers. The floor uses `#cbb89b` and roughness `0.48`; it is a solid-color material without a stone texture yet.
+3. The main right wall is 14 units long and centered at `z=1`, leaving an opening from `z=-8` to `-6`. A header above the opening and three alcove wall sections create actual recessed depth.
+4. `roofWingWidth=(10-3.6)/2=3.2` determines each roof wing's width. The `[-1, 1]` loop mirrors roof wings, longitudinal beams, skylight trim, and skirting on both sides.
+5. Longitudinal beams are centered at `x=±1.8`, `y=5.55`. Five crossbeams sit at `z=[-7.8,-4,0,4,7.8]`. Gaps remain open as skylights; physical glass is not implemented yet.
+6. The back-wall ventilation grille uses a casing, dark panel, and 32 thin slats generated by `Array.from`. It is decorative geometry without airflow simulation.
+7. All parts belong to the `Skylight gallery architecture` group. The group organizes the scene; each `RoomBox` casts and receives shadows.
+
+Basic dimensions use shared constants, but alcove, beam, and grille details still contain local numeric values. Changing `GALLERY_ROOM` alone does not automatically resize every detail or reposition paintings; also review `GalleryRoom.tsx` and the data in `GalleryScene.tsx`.
+
 ## 12. Step 5 - Lighting
 
-The scene uses one ambient light and four spotlights.
+The scene uses ambient, hemisphere, and directional lights, plus four spotlights:
 
 ```tsx
-<ambientLight color="#fff4df" intensity={0.42} />
+<ambientLight color="#fff5e7" intensity={0.65} />
+<hemisphereLight args={["#edf5ff", "#c8b797", 1.6]} />
 ```
 
 Ambient light supplies a uniform baseline so shadows do not become completely black. Spotlights provide direction, focus, and the gallery mood.
+
+Hemisphere light blends sky and ground colors according to surface orientation. It approximates environmental illumination rather than simulating full light bounces. The directional light at `[5,12,4]`, color `#fff0d4`, intensity `3.2`, points toward its default target `[0,0,0]` and suggests sunlight entering the skylight. Beams and roof wings with `castShadow` shape the resulting shadows.
+
+Sun shadows use a `2048×2048` map, shadow-camera bounds of `-12..12` on both axes, near `0.5`, far `40`, bias `-0.0001`, and normalBias `0.025`. The four spotlights now use intensity `22` and `1024×1024` maps to supplement object lighting. Spotlight targets read `position` directly from object data so they follow repositioned objects.
 
 A Three.js spotlight requires an `Object3D` target rather than a tuple:
 
@@ -366,9 +400,11 @@ Current placement:
 
 | Painting | Wall | Y rotation | Camera about 3 m in front |
 |---|---|---:|---|
-| Danau Fajar | left | `Math.PI / 2` | `[-2.86, 2.45, -2.2]` |
-| Champions 1999 | back | `0` | `[0, 2.45, -1.86]` |
-| Kota Bulan Sabit | right | `-Math.PI / 2` | `[2.86, 2.45, -2.2]` |
+| Danau Fajar | left | `Math.PI / 2` | `[-1.86, 2.45, -2.2]` |
+| Champions 1999 | back | `0` | `[0, 2.45, -4.86]` |
+| Kota Bulan Sabit | right | `-Math.PI / 2` | `[1.86, 2.45, -2.2]` |
+
+Painting centers are `[-4.86,2.45,-2.2]` on the left, `[0,2.45,-7.86]` at the back, and `[4.86,2.45,-2.2]` on the right. The vending machine is at `[-3.3,1.88,-6.25]`, with focus camera position `[-1.18,1.9,-4.13]`. Painting focus distance is exactly 3 units; vending focus distance is about 2.998 units. Moving the vending machine farther back clears the viewing area for the left painting.
 
 ## 14. Step 7 - The Painting component
 
@@ -471,6 +507,15 @@ invalidate();
 The `timeline.kill()` cleanup prevents an old tween from continuing if the user selects another object quickly.
 
 When selection is `null`, destination becomes `HOME_POSITION` and focus becomes `HOME_LOOK_AT`; the same mechanism returns the camera home.
+
+Both values now come from `galleryLayout.ts`:
+
+```tsx
+export const HOME_POSITION = [0, 2.7, 6.5] as const;
+export const HOME_LOOK_AT = [0, 2.65, -7.86] as const;
+```
+
+`GalleryCanvas` uses that same `HOME_POSITION` for the initial camera. `CameraController` imports it for Back, preventing the initial and return positions from diverging through duplicated constants.
 
 ## 16. Step 9 - Loading the vending machine GLB
 
@@ -598,7 +643,7 @@ The pieces have different jobs:
 - box shadow separates the panel from the artwork;
 - `z-index` controls DOM order, not WebGL mesh order.
 
-The `prefers-reduced-motion` media query disables animation for users who request reduced motion at operating-system level.
+The `prefers-reduced-motion` media query disables CSS overlay animations and transitions. The GSAP camera tween and `useFrame` hover scale do not yet follow this preference. In the brighter room, `.model-credit` now uses a 65% dark background, 90% light text, padding, and rounded corners to keep attribution legible.
 
 ## 20. Complete interaction flow
 
@@ -644,9 +689,22 @@ flowchart TD
 - Owns selection and vending panel state.
 - Renders Back and attribution outside the canvas.
 
+### `galleryLayout.ts`
+
+- Exports `GALLERY_ROOM`, `HOME_POSITION`, and `HOME_LOOK_AT`.
+- Consumed by `GalleryRoom`, `GalleryCanvas`, and `CameraController`.
+- Does not yet contain artwork coordinates or every building detail.
+
+### `GalleryRoom.tsx`
+
+- `RoomBoxProps` and `RoomBox` share the box geometry/material pattern.
+- Composes the floor, walls, right alcove, roof wings, skylight beams, trim, and grille.
+- Paired loops create symmetry; the slat loop creates the grille.
+- Owns no selection state or interaction handlers.
+
 ### `GalleryScene.tsx`
 
-- Stores room, painting, vending target, and lighting data.
+- Stores painting, vending target, and lighting data; calls `GalleryRoom` to construct the building.
 - Composes all 3D objects.
 - Receives callbacks instead of owning selection.
 - Acts as the 3D composition root.
@@ -725,7 +783,7 @@ Already implemented:
 - texture and GLB preload;
 - GSAP timeline cleanup;
 - separate data and components;
-- reduced-motion support;
+- reduced-motion support for CSS overlays;
 - type-safe tuples and focus-target contract.
 
 Recommended next improvements:
@@ -757,10 +815,10 @@ Example:
   title: "New title",
   description: "A short description.",
   price: 12_000_000,
-  position: [0, 2.45, -4.86],
+  position: [0, 2.45, -7.86],
   rotation: [0, 0, 0],
   size: [1.8, 2.4],
-  cameraTarget: [0, 2.45, -1.86],
+  cameraTarget: [0, 2.45, -4.86],
 }
 ```
 
@@ -788,7 +846,7 @@ For higher precision:
 
 ## 26. Learning exercises
 
-1. Add a ceiling without blocking the camera.
+1. Add skylight glazing without blocking the camera; test transparency and shadows.
 2. Add a sculpture GLB in the room center.
 3. Change spotlight emphasis with selection.
 4. Make the keypad populate the form without a keyboard.
